@@ -234,6 +234,27 @@ let is_self_reference lid =
     in fn = mn
   | _ -> false
 
+let lazy_env = lazy (
+  (* It is important that the typing environment is not evaluated
+     right away, but only once the ppx-context has been loaded from
+     the AST, so that Config.load_path and the rest of the environment
+     context are correctly set.
+
+     The environment setting should happen when reading the
+     ppx-context attribute which is the very first structure/signature
+     item sent to ppx rewriters. In particular, this happens before
+     the [%import ] extensions are traversed, which are the places in
+     this code where 'env' is forced.
+
+     We would also have the option to not have a globale environment, but
+     recompute the typing environment on each [%import ] extension. We don't
+     see any advantage in doing this, given that we compute the global/initial
+     environment that is the same at all program points.
+  *)
+  Compmisc.init_path false;
+  Compmisc.initial_env ()
+)
+
 let type_declaration mapper type_decl =
   match type_decl with
   | { ptype_attributes; ptype_name; ptype_manifest = Some {
@@ -248,7 +269,8 @@ let type_declaration mapper type_decl =
           { type_decl with ptype_manifest = Some manifest }
       else
         with_default_loc loc (fun () ->
-          let ttype_decl = locate_ttype_decl ~loc (locate_sig ~loc lid) lid in
+          let env = Lazy.force lazy_env in
+          let ttype_decl = Typetexp.find_type env loc lid |> snd in
           let m, s = if is_self_reference lid then
               None, []
           else begin
@@ -326,7 +348,8 @@ let module_type mapper modtype_decl =
           { modtype_decl with pmty_desc = Pmty_alias alias }
       else
         with_default_loc loc (fun () ->
-          match locate_tmodtype_decl ~loc (locate_sig ~loc lid) lid with
+          let env = Lazy.force lazy_env in
+          match Typetexp.find_modtype env loc lid |> snd with
           | { mtd_type = Some (Mty_signature tsig) } ->
             let subst = List.map (fun ({ txt; }, typ) -> `Lid txt, typ) subst in
             let psig  = psig_of_tsig ~subst tsig in
