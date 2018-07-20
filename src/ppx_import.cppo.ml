@@ -36,6 +36,12 @@ let lazy_env = lazy (
      see any advantage in doing this, given that we compute the global/initial
      environment that is the same at all program points.
   *)
+  (* We need to set recursive_types manually, because it is not part
+     of the context automatically saved by Ast_mapper (as of 4.06),
+     and this prevents loading the interface of recursive-types-using
+     modules. On the other hand, setting recursive_types more often
+     than necessary does not seem harmful. *)
+  Clflags.recursive_types := true;
   Compmisc.init_path false;
   Compmisc.initial_env ()
 )
