@@ -146,10 +146,28 @@ and suffix = string list
 let find_sig ~loc lid =
   let env = Lazy.force lazy_env in
   let rec find_prefix lid suffix =
+    (* Note: we are careful to call `Env.lookup_module` and not
+       `Typetexp.lookup_module`, because we want to reason precisely
+       about the possible failures: we want to handle the case where
+       the module path does not exist, but let all the other errors
+       (invalid .cmi format, etc.) bubble up to the error handler.
+
+       `Env.lookup_module` allows to do this easily as it raises
+       a well-identified `Not_found` exception, while
+       `Typetexp.lookup_module` wraps the Not_found failure in
+       user-oriented data and is not meant for catching.
+
+       `Env.find_module` can raise `Not_found` again; we suspect that
+       it will not in the cases where `lookup_module` returned correctly,
+       but better be safe and bundle them in the same try..with.
+    *)
     match
-      (try Some (Typetexp.find_module env loc lid) with _ -> None)
+      (try
+         Some (Env.find_module (Env.lookup_module ~load:true lid env) env)
+       with Not_found -> None)
     with
-    | Some (_path, module_decl) -> Module_prefix (lid, module_decl, suffix)
+    | Some module_decl ->
+      Module_prefix (lid, module_decl, suffix)
     | None ->
       begin match lid with
         | Longident.Ldot (lid, field) -> find_prefix lid (field :: suffix)
@@ -167,7 +185,17 @@ let find_sig ~loc lid =
       (* if the head is not a valid module, it must be a module type *)
       let head_id = Longident.Lident head in
       match
-        (try Some (Typetexp.find_modtype env loc head_id) with _ -> None)
+        (* Here again we prefer to handle the `Not_found` case, so we
+           use `Env.lookup_module` rather than `Typetexp.lookup_module`.
+
+           Because we just fail in the `Not_found` case we could call
+           `Env.lookup_modtype` and not handle the failure (the user
+           would get a nice error message), but are not sure whether
+           the user intends to have written a module name or module
+           type name, so an error in terms of module-type only could
+           be confusing.
+        *)
+        (try Some (Env.lookup_modtype ~loc head_id env) with Not_found -> None)
       with
       | None ->
         raise_errorf ~loc "[%%import] invalid import path %s" (string_of_lid lid)
@@ -369,6 +397,9 @@ let type_declaration mapper type_decl =
                 (string_of_lid lid)
             | Lident _ as head_id ->
               let env = Lazy.force lazy_env in
+              (* In this case, we know for sure that the user intends this lident
+                 as a type name, so we use Typetexp.find_type and let the failure
+                 cases propagate to the user. *)
               Typetexp.find_type env loc head_id |> snd
             | Ldot (parent_id, field) ->
               let sig_items = find_sig ~loc parent_id in
@@ -458,6 +489,9 @@ let module_type mapper modtype_decl =
                 "[%%import] cannot import a functor application %s"
                 (string_of_lid lid)
             | Lident _ as head_id ->
+              (* In this case, we know for sure that the user intends this lident
+                 as a module type name, so we use Typetexp.find_type and
+                 let the failure cases propagate to the user. *)
               Typetexp.find_modtype env loc head_id |> snd
             | Ldot (parent_id, field) ->
               let sig_items = find_sig ~loc parent_id in
