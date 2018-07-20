@@ -201,7 +201,13 @@ let find_sig ~loc lid =
            type name, so an error in terms of module-type only could
            be confusing.
         *)
-        (try Some (Env.lookup_modtype ~loc head_id env) with Not_found -> None)
+        (try Some (
+             Env.lookup_modtype
+#if OCAML_VERSION >= (4, 03, 0)
+               ~loc
+#endif
+               head_id env)
+         with Not_found -> None)
       with
       | None ->
         raise_errorf ~loc "[%%import] invalid import path %s" (string_of_lid lid)
