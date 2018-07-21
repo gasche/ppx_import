@@ -97,20 +97,20 @@ let string_of_lid lid =
    called from the main functions `type_declaration` and `module_type`.
 *)
 
-let open_module_type env loc lid module_type =
-  (* TODO: check if scrape_alias is the right thing,
-     it seems to strengthen the signature, maybe we should
-     expand the aliases manually *)
-  match Env.scrape_alias env module_type with
-  | ( Mty_ident _
-    | Mty_alias _
-    | Mty_functor _
-    ) ->
+let rec open_module_type env loc lid module_type =
+  let fail loc lid =
     raise_errorf ~loc "[%%import]: cannot access the components of %s"
       (string_of_lid lid)
+  in
+  match module_type with
   | Mty_signature sig_items -> sig_items
+  | Mty_functor _ -> fail loc lid
+  | (Mty_ident path | Mty_alias (_, path)) ->
+    (* TODO: is there a risk of looping recursion here? *)
+    open_module_decl env loc lid
+      (try Env.find_module path env with Not_found -> fail loc lid)
 
-let open_module_decl env loc lid module_decl =
+and open_module_decl env loc lid module_decl =
   open_module_type env loc lid module_decl.md_type
 
 let open_modtype_decl env loc lid modtype_decl =
